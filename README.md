@@ -15,12 +15,20 @@ Open the printed `localhost` URL. On first launch you'll set both names, then yo
 
 `npm run build && npm run preview` builds and serves the production bundle locally, useful for checking everything still works outside the dev server.
 
-## Phase 2 — Install on your phone (not yet built)
+## Phase 2 — Install on your phone (live)
 
-Once the MVP feels right, we'll add a web app manifest and service worker (`vite-plugin-pwa`) and deploy the static build to a free host like Vercel or Netlify, so it can be installed via "Add to Home Screen" in Safari/Chrome. Two things worth knowing ahead of time:
+The app is deployed at **https://jregueira.github.io/gastos/** via GitHub Actions → GitHub Pages, redeploying automatically on every push to `master`.
+
+**To install on iPhone:** open that link in Safari → Share → **Add to Home Screen**. It'll launch full-screen, no Safari address bar, with its own icon.
+
+**To install on Android:** open the link in Chrome → menu (⋮) → **Add to Home screen** / **Install app**.
+
+Two things worth knowing:
 
 - **iOS may clear on-device data** after about a week of not opening the app. Use **Settings → Export backup** occasionally, or before a long gap, and **Import backup** to restore.
 - **True push notifications** aren't available to local-only Home Screen apps on iOS without a server, so the "rent not logged" reminder on the Home screen is a simple in-app banner instead.
+
+Note that the phone install and `npm run dev` use separate local databases (different origins), so expenses you add locally won't show up on the deployed version and vice versa — that's expected until Phase 3 adds sync.
 
 ## Phase 3 — Cloud sync (not yet built)
 
