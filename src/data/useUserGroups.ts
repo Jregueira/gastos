@@ -3,15 +3,15 @@ import type { Group } from '../types'
 import { groupFromRow, type GroupRow } from './mappers'
 import { supabase } from './supabaseClient'
 
-interface CurrentGroupState {
-  group: Group | null
+interface UserGroupsState {
+  groups: Group[]
   loading: boolean
   refetch: () => void
 }
 
-/** Resolves the signed-in user's one group (a user belongs to exactly one group). */
-export function useCurrentGroup(userId: string | undefined): CurrentGroupState {
-  const [group, setGroup] = useState<Group | null>(null)
+/** All households the signed-in user belongs to, ordered by when they joined. */
+export function useUserGroups(userId: string | undefined): UserGroupsState {
+  const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [refetchToken, setRefetchToken] = useState(0)
 
@@ -19,7 +19,7 @@ export function useCurrentGroup(userId: string | undefined): CurrentGroupState {
 
   useEffect(() => {
     if (!userId) {
-      setGroup(null)
+      setGroups([])
       setLoading(false)
       return
     }
@@ -27,15 +27,20 @@ export function useCurrentGroup(userId: string | undefined): CurrentGroupState {
     setLoading(true)
     supabase
       .from('group_members')
-      .select('groups(*)')
+      .select('joined_at, groups(*)')
       .eq('user_id', userId)
-      .maybeSingle<{ groups: GroupRow | null }>()
+      .order('joined_at')
       .then(({ data, error }) => {
         if (cancelled) return
-        if (error || !data?.groups) {
-          setGroup(null)
+        if (error || !data) {
+          setGroups([])
         } else {
-          setGroup(groupFromRow(data.groups))
+          setGroups(
+            (data as unknown as { groups: GroupRow | null }[])
+              .map((row) => row.groups)
+              .filter((g): g is GroupRow => g !== null)
+              .map(groupFromRow),
+          )
         }
         setLoading(false)
       })
@@ -44,5 +49,5 @@ export function useCurrentGroup(userId: string | undefined): CurrentGroupState {
     }
   }, [userId, refetchToken])
 
-  return { group, loading, refetch }
+  return { groups, loading, refetch }
 }

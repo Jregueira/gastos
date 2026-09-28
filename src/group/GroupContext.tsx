@@ -6,17 +6,26 @@ interface GroupState {
   groupName: string
   inviteCode: string
   currentUserId: string
+  groups: Group[]
+  switchGroup: (id: string) => void
+  refetchGroups: () => void
 }
 
 const GroupContext = createContext<GroupState | null>(null)
 
 export function GroupProvider({
   group,
+  groups,
   currentUserId,
+  switchGroup,
+  refetchGroups,
   children,
 }: {
   group: Group
+  groups: Group[]
   currentUserId: string
+  switchGroup: (id: string) => void
+  refetchGroups: () => void
   children: ReactNode
 }) {
   const value: GroupState = {
@@ -24,6 +33,9 @@ export function GroupProvider({
     groupName: group.name,
     inviteCode: group.inviteCode,
     currentUserId,
+    groups,
+    switchGroup,
+    refetchGroups,
   }
   return <GroupContext.Provider value={value}>{children}</GroupContext.Provider>
 }

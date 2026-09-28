@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { addCategory, renameCategory, toggleArchived, useCategories } from '../data/useCategories'
 import { useMembers } from '../data/useMembers'
@@ -139,6 +140,9 @@ export default function Settings() {
             Sign out
           </button>
         </div>
+        <Link to="/households" className="mt-2 block text-sm font-medium text-indigo-600">
+          Manage households →
+        </Link>
       </section>
     </div>
   )

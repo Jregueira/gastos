@@ -1,6 +1,6 @@
 # Gastos
 
-A shared expense splitter for a household — like Splitwise. Any number of people can sign in, join a household via an invite code, and see each other's expenses and balances live. Built as a web app so it can be installed on a phone's Home Screen (a PWA).
+A shared expense splitter for a household — like Splitwise. Any number of people can sign in, join a household via an invite code, and see each other's expenses and balances live. One account can belong to multiple households (e.g. an apartment and a family) and switch between them. Built as a web app so it can be installed on a phone's Home Screen (a PWA).
 
 Live at **https://jregueira.github.io/gastos/**, auto-deployed via GitHub Actions on every push to `master`.
 
@@ -23,7 +23,7 @@ Then:
 npm run dev
 ```
 
-First launch prompts you to sign up (email + password), then create a household or join one with an invite code. From there: add an expense (equal, custom, or "one owes it all" splits across any number of members), see the running balance, settle up, browse history, and check monthly reports. Settings has an "Invite people" section with a shareable code/link.
+First launch prompts you to sign up (email + password), then create a household or join one with an invite code. From there: add an expense (equal, custom, or "one owes it all" splits across any number of members), see the running balance, settle up, browse history, and check monthly reports. The header at the top of every screen shows your active household — tap it to switch households or add another one. Settings has an "Invite people" section with a shareable code/link.
 
 `npm run build && npm run preview` builds and serves the production bundle locally.
 
@@ -52,7 +52,8 @@ GitHub Actions builds and deploys to GitHub Pages on every push to `master` (`.g
 - `supabase/migrations/` — schema, RLS policies, and the `create_group`/`join_group` RPCs
 - `src/data/` — Supabase client, realtime-backed hooks (`useMembers`, `useCategories`, `useExpenses`, `useSettlements`), and snake_case↔camelCase mappers
 - `src/auth/` — `AuthContext`/`useAuth`, wrapping Supabase Auth sessions
-- `src/group/GroupContext.tsx` — the signed-in user's current household, provided to every screen
+- `src/group/GroupContext.tsx` — the signed-in user's active household plus the full list they belong to, provided to every screen; `src/group/activeGroup.ts` persists which one is active per device
+- `src/screens/Households.tsx` / `src/components/HouseholdHeader.tsx` — the household switcher and "add another household" flow
 - `src/lib/balances.ts` — per-member net balance calculation + greedy debt-simplification (minimal suggested settlements)
 - `src/lib/split.ts` — equal / custom / "one owes it all" split math for an arbitrary list of participants
 - `src/screens/` — one file per screen (Auth, GroupSetup, Home, AddExpense, History, SettleUp, Reports, Settings)
