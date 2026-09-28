@@ -15,7 +15,7 @@ export default defineConfig({
       manifest: {
         name: 'Gastos',
         short_name: 'Gastos',
-        description: 'Split household expenses between two people.',
+        description: 'Split shared expenses with your household.',
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
         display: 'standalone',
