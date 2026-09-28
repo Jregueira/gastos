@@ -1,4 +1,3 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import {
   Bar,
@@ -11,9 +10,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { db } from '../db/db'
-import { useCategories } from '../hooks/useCategories'
-import { usePeople } from '../hooks/usePeople'
+import { useCategories } from '../data/useCategories'
+import { useExpenses } from '../data/useExpenses'
+import { useMembers } from '../data/useMembers'
+import { useGroup } from '../group/GroupContext'
 import { formatCents, monthLabel } from '../lib/format'
 import {
   currentYearMonth,
@@ -29,9 +29,10 @@ const PALETTE = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#a855f7
 
 export default function Reports() {
   const [yearMonth, setYearMonth] = useState(currentYearMonth())
-  const people = usePeople()
-  const categories = useCategories(true)
-  const allExpenses = useLiveQuery(() => db.expenses.toArray(), [], [])
+  const { groupId } = useGroup()
+  const members = useMembers(groupId)
+  const categories = useCategories(groupId, true)
+  const allExpenses = useExpenses(groupId)
 
   const monthExpenses = useMemo(() => expensesInMonth(allExpenses, yearMonth), [allExpenses, yearMonth])
   const total = useMemo(() => totalCents(monthExpenses), [monthExpenses])
@@ -39,7 +40,14 @@ export default function Reports() {
     () => spendByCategory(monthExpenses, categories),
     [monthExpenses, categories],
   )
-  const byPerson = useMemo(() => spendByPerson(monthExpenses, people), [monthExpenses, people])
+  const byPerson = useMemo(
+    () =>
+      spendByPerson(
+        monthExpenses,
+        members.map((m) => ({ id: m.userId, name: m.displayName })),
+      ),
+    [monthExpenses, members],
+  )
   const trailing = useMemo(
     () => trailingMonthTotals(allExpenses, yearMonth, 6),
     [allExpenses, yearMonth],

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { db } from '../db/db'
-import { useCategories } from '../hooks/useCategories'
-import { usePeople } from '../hooks/usePeople'
+import { useCategories } from '../data/useCategories'
+import { addExpense, deleteExpense, getExpense, updateExpense } from '../data/useExpenses'
+import { useMembers } from '../data/useMembers'
+import { useGroup } from '../group/GroupContext'
 import { formatCents, parseDollarsToCents, todayIso } from '../lib/format'
 import { computeSplitDetails } from '../lib/split'
 import type { SplitType } from '../types'
@@ -11,49 +12,72 @@ export default function AddExpense() {
   const { id } = useParams()
   const isEditing = Boolean(id)
   const navigate = useNavigate()
-  const people = usePeople()
-  const categories = useCategories()
-  const [personA, personB] = people
+  const { groupId, currentUserId } = useGroup()
+  const members = useMembers(groupId)
+  const categories = useCategories(groupId)
 
   const [amountStr, setAmountStr] = useState('')
   const [description, setDescription] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [date, setDate] = useState(todayIso())
-  const [paidByPersonId, setPaidByPersonId] = useState('')
-  const [splitType, setSplitType] = useState<SplitType>('50-50')
-  const [customShareAStr, setCustomShareAStr] = useState('')
-  const [fullOwerPersonId, setFullOwerPersonId] = useState('')
+  const [paidByUserId, setPaidByUserId] = useState('')
+  const [splitType, setSplitType] = useState<SplitType>('equal')
+  const [participantIds, setParticipantIds] = useState<string[]>([])
+  const [customShareStrs, setCustomShareStrs] = useState<Record<string, string>>({})
+  const [fullOwerUserId, setFullOwerUserId] = useState('')
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(!isEditing)
 
-  // Sensible defaults once people/categories arrive.
+  // Sensible defaults once members/categories arrive.
   useEffect(() => {
-    if (!isEditing && personA && !paidByPersonId) setPaidByPersonId(personA.id)
-  }, [isEditing, personA, paidByPersonId])
+    if (!isEditing && currentUserId && !paidByUserId) setPaidByUserId(currentUserId)
+  }, [isEditing, currentUserId, paidByUserId])
   useEffect(() => {
     if (!isEditing && categories[0] && !categoryId) setCategoryId(categories[0].id)
   }, [isEditing, categories, categoryId])
   useEffect(() => {
-    if (personB && !fullOwerPersonId) setFullOwerPersonId(personB.id)
-  }, [personB, fullOwerPersonId])
+    if (!isEditing && members.length && participantIds.length === 0) {
+      setParticipantIds(members.map((m) => m.userId))
+    }
+  }, [isEditing, members, participantIds])
+  useEffect(() => {
+    if (members.length && !fullOwerUserId) setFullOwerUserId(members[0].userId)
+  }, [members, fullOwerUserId])
 
   useEffect(() => {
     if (!isEditing || !id) return
-    db.expenses.get(id).then((e) => {
+    getExpense(id).then((e) => {
       if (!e) return
       setAmountStr((e.amountCents / 100).toString())
       setDescription(e.description)
-      setCategoryId(e.categoryId)
+      setCategoryId(e.categoryId ?? '')
       setDate(e.date)
-      setPaidByPersonId(e.paidByPersonId)
+      setPaidByUserId(e.paidByUserId)
       setSplitType(e.splitType)
-      if (personA) setCustomShareAStr((e.splitDetails[personA.id] / 100).toString())
-      const owerEntry = Object.entries(e.splitDetails).find(([, v]) => v > 0)
-      if (owerEntry) setFullOwerPersonId(owerEntry[0])
+      const shareEntries = Object.entries(e.splitDetails)
+      setParticipantIds(shareEntries.map(([userId]) => userId))
+      setCustomShareStrs(
+        Object.fromEntries(shareEntries.map(([userId, cents]) => [userId, (cents / 100).toString()])),
+      )
+      if (e.splitType === 'full') {
+        const owerEntry = shareEntries.find(([, v]) => v > 0)
+        if (owerEntry) setFullOwerUserId(owerEntry[0])
+      }
       setLoaded(true)
     })
-    // personA is only needed to seed customShareAStr; re-running when it arrives is fine.
-  }, [isEditing, id, personA])
+  }, [isEditing, id])
+
+  function toggleParticipant(userId: string) {
+    setParticipantIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+    )
+  }
+
+  const customAllocatedCents = useMemo(
+    () =>
+      participantIds.reduce((sum, userId) => sum + (parseDollarsToCents(customShareStrs[userId] ?? '') ?? 0), 0),
+    [participantIds, customShareStrs],
+  )
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -68,52 +92,45 @@ export default function AddExpense() {
       setError('Add a short description.')
       return
     }
-    if (!personA || !personB) return
-
-    let customShareForA: number | undefined
-    if (splitType === 'custom') {
-      const parsed = parseDollarsToCents(customShareAStr)
-      if (parsed === null || parsed > amountCents) {
-        setError(`Custom share must be between $0 and ${formatCents(amountCents)}.`)
-        return
-      }
-      customShareForA = parsed
+    if (splitType !== 'full' && participantIds.length === 0) {
+      setError('Select at least one person to split between.')
+      return
     }
 
-    const splitDetails = computeSplitDetails({
-      amountCents,
-      splitType,
-      personAId: personA.id,
-      personBId: personB.id,
-      customShareForA,
-      fullOwerPersonId,
-    })
+    let splitDetails: Record<string, number>
+    try {
+      if (splitType === 'custom') {
+        const customShares = Object.fromEntries(
+          participantIds.map((userId) => [userId, parseDollarsToCents(customShareStrs[userId] ?? '') ?? 0]),
+        )
+        splitDetails = computeSplitDetails({ amountCents, splitType, participantIds, customShares })
+      } else {
+        splitDetails = computeSplitDetails({
+          amountCents,
+          splitType,
+          participantIds,
+          fullOwerUserId,
+        })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid split.')
+      return
+    }
 
-    const now = Date.now()
+    const input = {
+      amountCents,
+      description: description.trim(),
+      categoryId: categoryId || null,
+      date,
+      paidByUserId,
+      splitType,
+      splitDetails,
+    }
+
     if (isEditing && id) {
-      await db.expenses.update(id, {
-        amountCents,
-        description: description.trim(),
-        categoryId,
-        date,
-        paidByPersonId,
-        splitType,
-        splitDetails,
-        updatedAt: now,
-      })
+      await updateExpense(id, input)
     } else {
-      await db.expenses.add({
-        id: crypto.randomUUID(),
-        amountCents,
-        description: description.trim(),
-        categoryId,
-        date,
-        paidByPersonId,
-        splitType,
-        splitDetails,
-        createdAt: now,
-        updatedAt: now,
-      })
+      await addExpense(groupId, input)
     }
     navigate('/')
   }
@@ -121,7 +138,7 @@ export default function AddExpense() {
   async function handleDelete() {
     if (!id) return
     if (!confirm('Delete this expense?')) return
-    await db.expenses.delete(id)
+    await deleteExpense(id)
     navigate('/')
   }
 
@@ -182,19 +199,19 @@ export default function AddExpense() {
 
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium text-slate-700">Paid by</span>
-          <div className="flex gap-2">
-            {people.map((p) => (
+          <div className="flex flex-wrap gap-2">
+            {members.map((m) => (
               <button
                 type="button"
-                key={p.id}
-                onClick={() => setPaidByPersonId(p.id)}
-                className={`flex-1 rounded-xl border py-3 text-sm font-medium ${
-                  paidByPersonId === p.id
+                key={m.userId}
+                onClick={() => setPaidByUserId(m.userId)}
+                className={`rounded-xl border px-4 py-2.5 text-sm font-medium ${
+                  paidByUserId === m.userId
                     ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                     : 'border-slate-300 text-slate-600'
                 }`}
               >
-                {p.name}
+                {m.userId === currentUserId ? 'You' : m.displayName}
               </button>
             ))}
           </div>
@@ -205,7 +222,7 @@ export default function AddExpense() {
           <div className="flex gap-2">
             {(
               [
-                ['50-50', '50 / 50'],
+                ['equal', 'Equal'],
                 ['custom', 'Custom'],
                 ['full', 'One owes it all'],
               ] as [SplitType, string][]
@@ -226,35 +243,74 @@ export default function AddExpense() {
           </div>
         </div>
 
-        {splitType === 'custom' && personA && (
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-slate-700">{personA.name}'s share</span>
-            <input
-              inputMode="decimal"
-              className="rounded-xl border border-slate-300 px-4 py-3 text-base focus:border-indigo-500 focus:outline-none"
-              placeholder="$0.00"
-              value={customShareAStr}
-              onChange={(e) => setCustomShareAStr(e.target.value)}
-            />
-          </label>
+        {splitType !== 'full' && (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-slate-700">Split between</span>
+            <div className="flex flex-wrap gap-2">
+              {members.map((m) => (
+                <button
+                  type="button"
+                  key={m.userId}
+                  onClick={() => toggleParticipant(m.userId)}
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-medium ${
+                    participantIds.includes(m.userId)
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                      : 'border-slate-300 text-slate-600'
+                  }`}
+                >
+                  {m.userId === currentUserId ? 'You' : m.displayName}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {splitType === 'custom' && (
+          <div className="flex flex-col gap-2">
+            {participantIds.map((userId) => {
+              const member = members.find((m) => m.userId === userId)
+              return (
+                <label key={userId} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-slate-700">
+                    {userId === currentUserId ? 'You' : member?.displayName ?? 'Unknown'}
+                  </span>
+                  <input
+                    inputMode="decimal"
+                    className="w-28 rounded-xl border border-slate-300 px-3 py-2 text-right text-sm focus:border-indigo-500 focus:outline-none"
+                    placeholder="$0.00"
+                    value={customShareStrs[userId] ?? ''}
+                    onChange={(e) =>
+                      setCustomShareStrs((prev) => ({ ...prev, [userId]: e.target.value }))
+                    }
+                  />
+                </label>
+              )
+            })}
+            {amountStr && (
+              <p className="text-right text-xs text-slate-400">
+                {formatCents((parseDollarsToCents(amountStr) ?? 0) - customAllocatedCents)} left to
+                allocate
+              </p>
+            )}
+          </div>
         )}
 
         {splitType === 'full' && (
           <div className="flex flex-col gap-1">
             <span className="text-sm font-medium text-slate-700">Who owes it all?</span>
-            <div className="flex gap-2">
-              {people.map((p) => (
+            <div className="flex flex-wrap gap-2">
+              {members.map((m) => (
                 <button
                   type="button"
-                  key={p.id}
-                  onClick={() => setFullOwerPersonId(p.id)}
-                  className={`flex-1 rounded-xl border py-3 text-sm font-medium ${
-                    fullOwerPersonId === p.id
+                  key={m.userId}
+                  onClick={() => setFullOwerUserId(m.userId)}
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-medium ${
+                    fullOwerUserId === m.userId
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                       : 'border-slate-300 text-slate-600'
                   }`}
                 >
-                  {p.name}
+                  {m.userId === currentUserId ? 'You' : m.displayName}
                 </button>
               ))}
             </div>

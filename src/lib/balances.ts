@@ -1,51 +1,65 @@
 import type { Expense, Settlement } from '../types'
 
 /**
- * Net position of `personAId` relative to `personBId`, in cents.
- * Positive: B owes A. Negative: A owes B. Zero: settled up.
+ * Net position of each member, in cents. Positive = they're owed money,
+ * negative = they owe money, 0 = settled.
  *
- * Pure function over plain arrays so it can be unit-tested and, later,
- * reused unchanged once the arrays come from Supabase instead of Dexie.
+ * Pure function over plain arrays so it stays unit-testable and reusable
+ * regardless of where the arrays come from.
  */
-export function calculateNetCents(
+export function calculateNetBalances(
+  memberIds: string[],
   expenses: Expense[],
   settlements: Settlement[],
-  personAId: string,
-  personBId: string,
-): number {
-  let net = 0
+): Record<string, number> {
+  const net: Record<string, number> = Object.fromEntries(memberIds.map((id) => [id, 0]))
 
   for (const e of expenses) {
-    const aShare = e.splitDetails[personAId] ?? 0
-    const aPaid = e.paidByPersonId === personAId ? e.amountCents : 0
-    net += aPaid - aShare
+    if (e.paidByUserId in net) net[e.paidByUserId] += e.amountCents
+    for (const [userId, share] of Object.entries(e.splitDetails)) {
+      if (userId in net) net[userId] -= share
+    }
   }
 
   for (const s of settlements) {
-    if (s.fromPersonId === personAId && s.toPersonId === personBId) net += s.amountCents
-    else if (s.fromPersonId === personBId && s.toPersonId === personAId) net -= s.amountCents
+    if (s.fromUserId in net) net[s.fromUserId] += s.amountCents
+    if (s.toUserId in net) net[s.toUserId] -= s.amountCents
   }
 
   return net
 }
 
-export interface BalanceSummary {
+export interface SuggestedSettlement {
+  fromUserId: string
+  toUserId: string
   amountCents: number
-  owesPersonId: string | null
-  owedPersonId: string | null
-  isSettled: boolean
 }
 
-export function summarizeBalance(
-  expenses: Expense[],
-  settlements: Settlement[],
-  personAId: string,
-  personBId: string,
-): BalanceSummary {
-  const net = calculateNetCents(expenses, settlements, personAId, personBId)
-  if (net === 0) return { amountCents: 0, owesPersonId: null, owedPersonId: null, isSettled: true }
-  if (net > 0) {
-    return { amountCents: net, owesPersonId: personBId, owedPersonId: personAId, isSettled: false }
+/** Greedy minimal-transaction debt simplification: match largest debtor with largest creditor. */
+export function simplifyDebts(netBalances: Record<string, number>): SuggestedSettlement[] {
+  const debtors = Object.entries(netBalances)
+    .filter(([, v]) => v < 0)
+    .map(([userId, v]) => ({ userId, amount: -v }))
+    .sort((a, b) => b.amount - a.amount)
+  const creditors = Object.entries(netBalances)
+    .filter(([, v]) => v > 0)
+    .map(([userId, v]) => ({ userId, amount: v }))
+    .sort((a, b) => b.amount - a.amount)
+
+  const result: SuggestedSettlement[] = []
+  let i = 0
+  let j = 0
+  while (i < debtors.length && j < creditors.length) {
+    const d = debtors[i]
+    const c = creditors[j]
+    const amount = Math.min(d.amount, c.amount)
+    if (amount > 0) {
+      result.push({ fromUserId: d.userId, toUserId: c.userId, amountCents: amount })
+    }
+    d.amount -= amount
+    c.amount -= amount
+    if (d.amount === 0) i++
+    if (c.amount === 0) j++
   }
-  return { amountCents: -net, owesPersonId: personAId, owedPersonId: personBId, isSettled: false }
+  return result
 }

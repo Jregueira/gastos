@@ -1,26 +1,38 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import ExpenseListItem from '../components/ExpenseListItem'
-import { db } from '../db/db'
-import { useCategories } from '../hooks/useCategories'
-import { usePeople } from '../hooks/usePeople'
-import { summarizeBalance } from '../lib/balances'
+import { useCategories } from '../data/useCategories'
+import { useExpenses } from '../data/useExpenses'
+import { useMembers } from '../data/useMembers'
+import { useSettlements } from '../data/useSettlements'
+import { useGroup } from '../group/GroupContext'
+import { calculateNetBalances, simplifyDebts } from '../lib/balances'
 import { formatCents, todayIso } from '../lib/format'
 
 const RECENT_COUNT = 5
 
 export default function Home() {
-  const people = usePeople()
-  const categories = useCategories(true)
-  const expenses = useLiveQuery(() => db.expenses.orderBy('date').reverse().toArray(), [], [])
-  const settlements = useLiveQuery(() => db.settlements.toArray(), [], [])
+  const { groupId, currentUserId } = useGroup()
+  const members = useMembers(groupId)
+  const categories = useCategories(groupId, true)
+  const expenses = useExpenses(groupId)
+  const settlements = useSettlements(groupId)
 
-  const [personA, personB] = people
-  const balance = useMemo(() => {
-    if (!personA || !personB) return null
-    return summarizeBalance(expenses, settlements, personA.id, personB.id)
-  }, [expenses, settlements, personA, personB])
+  const memberById = useMemo(() => new Map(members.map((m) => [m.userId, m])), [members])
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+
+  const netBalances = useMemo(
+    () => calculateNetBalances(members.map((m) => m.userId), expenses, settlements),
+    [members, expenses, settlements],
+  )
+  const myNet = netBalances[currentUserId] ?? 0
+
+  const mySettlements = useMemo(() => {
+    if (!members.length) return []
+    return simplifyDebts(netBalances).filter(
+      (s) => s.fromUserId === currentUserId || s.toUserId === currentUserId,
+    )
+  }, [netBalances, members, currentUserId])
 
   const rentReminder = useMemo(() => {
     if (!categories.length) return null
@@ -36,23 +48,36 @@ export default function Home() {
     return alreadyLogged ? null : "Rent hasn't been logged this month yet."
   }, [categories, expenses])
 
-  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
-  const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
-
   return (
     <div className="flex flex-col">
       <div className="bg-indigo-600 px-5 pb-6 pt-8 text-white">
-        {balance?.isSettled ? (
+        {myNet === 0 ? (
           <p className="text-lg font-medium">You're all settled up 🎉</p>
-        ) : balance ? (
+        ) : myNet > 0 ? (
           <p className="text-lg font-medium">
-            {peopleById.get(balance.owesPersonId!)?.name} owes{' '}
-            {peopleById.get(balance.owedPersonId!)?.name}{' '}
-            <span className="font-bold">{formatCents(balance.amountCents)}</span>
+            You are owed <span className="font-bold">{formatCents(myNet)}</span> overall
           </p>
         ) : (
-          <p className="text-lg font-medium">Loading…</p>
+          <p className="text-lg font-medium">
+            You owe <span className="font-bold">{formatCents(-myNet)}</span> overall
+          </p>
         )}
+
+        {mySettlements.length > 0 && (
+          <ul className="mt-2 flex flex-col gap-0.5 text-sm text-indigo-100">
+            {mySettlements.map((s) => {
+              const other = memberById.get(s.fromUserId === currentUserId ? s.toUserId : s.fromUserId)
+              const youOwe = s.fromUserId === currentUserId
+              return (
+                <li key={`${s.fromUserId}-${s.toUserId}`}>
+                  {youOwe ? `You owe ${other?.displayName ?? 'someone'}` : `${other?.displayName ?? 'Someone'} owes you`}{' '}
+                  {formatCents(s.amountCents)}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
         <div className="mt-4 flex gap-3">
           <Link
             to="/add"
@@ -94,8 +119,8 @@ export default function Home() {
               <ExpenseListItem
                 key={e.id}
                 expense={e}
-                category={categoryById.get(e.categoryId)}
-                paidBy={peopleById.get(e.paidByPersonId)}
+                category={e.categoryId ? categoryById.get(e.categoryId) : undefined}
+                paidBy={memberById.get(e.paidByUserId)}
               />
             ))
         )}

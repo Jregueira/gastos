@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { formatCents, formatDate } from '../lib/format'
-import type { Category, Expense, Person } from '../types'
+import type { Category, Expense, Member } from '../types'
 
 export default function ExpenseListItem({
   expense,
@@ -9,7 +9,7 @@ export default function ExpenseListItem({
 }: {
   expense: Expense
   category: Category | undefined
-  paidBy: Person | undefined
+  paidBy: Member | undefined
 }) {
   const navigate = useNavigate()
 
@@ -23,7 +23,7 @@ export default function ExpenseListItem({
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
         style={{ backgroundColor: paidBy?.colorTag ?? '#94a3b8' }}
       >
-        {paidBy?.name.slice(0, 1).toUpperCase() ?? '?'}
+        {paidBy?.displayName.slice(0, 1).toUpperCase() ?? '?'}
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-slate-900">{expense.description}</p>
@@ -33,7 +33,7 @@ export default function ExpenseListItem({
       </div>
       <div className="shrink-0 text-right">
         <p className="font-semibold text-slate-900">{formatCents(expense.amountCents)}</p>
-        <p className="text-xs text-slate-400">{paidBy?.name ?? 'Unknown'} paid</p>
+        <p className="text-xs text-slate-400">{paidBy?.displayName ?? 'Unknown'} paid</p>
       </div>
     </button>
   )

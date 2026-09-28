@@ -18,11 +18,14 @@ export interface CategorySlice {
   amountCents: number
 }
 
+const UNCATEGORIZED = 'uncategorized'
+
 export function spendByCategory(expenses: Expense[], categories: Category[]): CategorySlice[] {
   const byId = new Map(categories.map((c) => [c.id, c]))
   const totals = new Map<string, number>()
   for (const e of expenses) {
-    totals.set(e.categoryId, (totals.get(e.categoryId) ?? 0) + e.amountCents)
+    const key = e.categoryId ?? UNCATEGORIZED
+    totals.set(key, (totals.get(key) ?? 0) + e.amountCents)
   }
   return [...totals.entries()]
     .map(([categoryId, amountCents]) => ({

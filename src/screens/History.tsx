@@ -1,14 +1,15 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import ExpenseListItem from '../components/ExpenseListItem'
-import { db } from '../db/db'
-import { useCategories } from '../hooks/useCategories'
-import { usePeople } from '../hooks/usePeople'
+import { useCategories } from '../data/useCategories'
+import { useExpenses } from '../data/useExpenses'
+import { useMembers } from '../data/useMembers'
+import { useGroup } from '../group/GroupContext'
 
 export default function History() {
-  const people = usePeople()
-  const categories = useCategories(true)
-  const expenses = useLiveQuery(() => db.expenses.orderBy('date').reverse().toArray(), [], [])
+  const { groupId, currentUserId } = useGroup()
+  const members = useMembers(groupId)
+  const categories = useCategories(groupId, true)
+  const expenses = useExpenses(groupId)
 
   const [categoryId, setCategoryId] = useState('all')
   const [paidBy, setPaidBy] = useState('all')
@@ -16,12 +17,12 @@ export default function History() {
   const [dateTo, setDateTo] = useState('')
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
-  const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people])
+  const memberById = useMemo(() => new Map(members.map((m) => [m.userId, m])), [members])
 
   const filtered = useMemo(() => {
     return expenses.filter((e) => {
       if (categoryId !== 'all' && e.categoryId !== categoryId) return false
-      if (paidBy !== 'all' && e.paidByPersonId !== paidBy) return false
+      if (paidBy !== 'all' && e.paidByUserId !== paidBy) return false
       if (dateFrom && e.date < dateFrom) return false
       if (dateTo && e.date > dateTo) return false
       return true
@@ -51,9 +52,9 @@ export default function History() {
             onChange={(e) => setPaidBy(e.target.value)}
           >
             <option value="all">Anyone paid</option>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} paid
+            {members.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.userId === currentUserId ? 'You' : m.displayName} paid
               </option>
             ))}
           </select>
@@ -83,8 +84,8 @@ export default function History() {
           <ExpenseListItem
             key={e.id}
             expense={e}
-            category={categoryById.get(e.categoryId)}
-            paidBy={peopleById.get(e.paidByPersonId)}
+            category={e.categoryId ? categoryById.get(e.categoryId) : undefined}
+            paidBy={memberById.get(e.paidByUserId)}
           />
         ))
       )}
